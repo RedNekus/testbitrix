@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Bitrix24 Companies Fetcher</title>
+  <link rel="stylesheet" href="/public/css/styles.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" defer></script>
+  <script src="/public/js/app.js" defer></script>
+</head>
+<body>
+  {% verbatim %}
+  <div id="app">
+    <h2>Загрузка компаний из Битрикс24</h2>
+
+    <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+      <div style="flex: 1; min-width: 200px;">
+        <input
+          :class="{'error-border': error && (error.includes('URL') || error.includes('домен'))}"
+          v-model="webhookUrl"
+          placeholder="Примеры:
+• https://ваш.bitrix24.ru/rest/123/токен/crm.company.list.json
+• https://yoow.bitrix24.by/rest/456/токен/crm.company.list.json
+• https://corporate.bitrix24.kz/rest/789/токен/crm.company.list.json"
+          style="font-family: monospace; font-size: 13px; line-height: 1.4;"
+          @input="error = ''"
+        />
+      </div>
+      <button @click="fetchCompanies" :disabled="loading" style="width: auto; padding: 10px 15px; white-space: nowrap;">
+        {{ loading ? 'Загрузка...' : 'Получить компании' }}
+      </button>
+      <button @click="clearCache" v-if="companies.length > 0 || isFromCache" style="width: auto; padding: 10px 15px; background: #ffc107; color: #212529; white-space: nowrap;">
+        Очистить кэш
+      </button>
+    </div>
+
+    <div v-if="error" class="error" v-html="formattedError"></div>
+    <div v-if="loading" class="loading">{{ progressMessage || 'Начинаем загрузку...' }}</div>
+    <div v-if="isFromCache && !loading" class="loading" style="color: #17a2b8; background: #e3f2fd; border-left: 3px solid #17a2b8; padding: 8px 12px; margin: 10px 0; border-radius: 0 4px 4px 0;">
+      ⏱️ Данные загружены из кэша (актуальны 10 минут)
+    </div>
+    
+    <button 
+      v-if="companies.length > 0 && !loading"
+      @click="downloadExcel"
+      style="background: #28a745; margin-top: 6px; width: auto; padding: 8px 15px;"
+    >
+      Скачать Excel ({{ companies.length }} компаний)
+    </button>
+
+    <input
+      v-if="companies.length > 0 && !loading"
+      v-model="searchQuery"
+      placeholder="Поиск по названию компании..."
+      style="margin-top: 10px; background: #fff8e1;"
+    />
+
+    <div v-if="total > 0" class="summary">
+      Всего компаний: {{ total }} 
+      <span v-if="searchQuery">| Найдено: {{ filteredCompanies.length }}</span>
+      <span v-if="isFromCache"> (из кэша)</span>
+      | Страница {{ currentPage }} из {{ totalPages }}
+    </div>
+
+    <div v-if="pagedCompanies.length" style="margin-top: 15px;">
+      <div v-for="company in pagedCompanies" :key="company.ID" class="company">
+        <div class="title">{{ company.TITLE || 'Без названия' }}</div>
+        <div v-if="getFirstValue(company.PHONE)" class="detail">📞 {{ getFirstValue(company.PHONE) }}</div>
+        <div v-if="getFirstValue(company.EMAIL)" class="detail">✉️ {{ getFirstValue(company.EMAIL) }}</div>
+      </div>
+    </div>
+
+    <div v-if="totalPages > 1" class="pagination">
+      <button 
+        @click="currentPage = Math.max(1, currentPage - 1)"
+        :disabled="currentPage === 1"
+      >
+        ←
+      </button>
+
+      <button
+        v-for="page in totalPages"
+        :key="page"
+        @click="currentPage = page"
+        :class="{ active: page === currentPage }"
+      >
+        {{ page }}
+      </button>
+
+      <button
+        @click="currentPage = Math.min(totalPages, currentPage + 1)"
+        :disabled="currentPage === totalPages"
+      >
+        →
+      </button>
+    </div>
+  </div>
+  {% endverbatim %}
+</body>
+</html>
