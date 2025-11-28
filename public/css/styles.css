@@ -20,6 +20,7 @@
   --bg-pagination: #f8f8f8;
   --bg-pagination-hover: #e9ecef;
   --bg-cache-message: #e3f2fd;
+  --warning-bg: #fff8e1;
 
   /* Отступы */
   --spacing-xs: 4px;
@@ -43,7 +44,6 @@
 
   /* Эффекты */
   --transition: all 0.2s ease;
-  --box-shadow-sm: 0 1px 3px rgba(0,0,0,0.05);
   --scrollbar-thumb: #ccc;
   --scrollbar-height: 6px;
 }
@@ -75,6 +75,10 @@ input {
   background: var(--bg-input);
   font-size: var(--font-size-base);
   box-sizing: border-box;
+}
+
+/* Отступы только для основного поля URL */
+.input-url {
   margin-bottom: var(--spacing-md);
 }
 
@@ -87,7 +91,6 @@ button {
   border-radius: 0;
   cursor: pointer;
   font-size: var(--font-size-base);
-  margin-bottom: var(--spacing-md);
   font-weight: 500;
   transition: var(--transition);
 }
@@ -101,6 +104,11 @@ button:disabled {
 button.warning {
   background: var(--warning);
   color: var(--warning-text);
+}
+
+/* Отступы для кнопок */
+button:not(.pagination button):not(.view-toggle button) {
+  margin-bottom: var(--spacing-md);
 }
 
 /* =СТАТУСНЫЕ СООБЩЕНИЯ
@@ -215,12 +223,135 @@ button.warning {
   cursor: not-allowed;
 }
 
-/* =ФИЛТРЫ И ДОПОЛНИТЕЛЬНЫЕ ЭЛЕМЕНТЫ
+/* =ТАБЛИЦА КОМПАНИЙ
 -------------------------------------------------------------- */
-input.search {
+.table-container {
+  overflow-x: auto;
+  border: var(--border-width) var(--border-style) var(--border-medium);
+  border-radius: var(--border-radius-md);
+  background: var(--bg-card);
   margin-top: var(--spacing-md);
-  background: var(--warning-bg);
-  border-color: var(--border-input);
+  position: relative;
+  -webkit-overflow-scrolling: touch; /* Плавный скролл на iOS */
+}
+
+/* Визуальный индикатор скролла (только если есть скрытые данные) */
+.table-container::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 20px;
+  background: linear-gradient(to left, 
+    rgba(255, 255, 255, 0.9) 0%, 
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.companies-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-base);
+  min-width: 400px; /* Минимальная ширина для 2 колонок */
+}
+
+.companies-table th,
+.companies-table td {
+  padding: var(--spacing-sm) var(--spacing-md);
+  text-align: left;
+  border-bottom: var(--border-width) var(--border-style) var(--border-light);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.companies-table th {
+  background: var(--bg-pagination);
+  font-weight: 600;
+  color: var(--text-primary);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.companies-table tbody tr:hover {
+  background: var(--bg-pagination-hover);
+}
+
+.companies-table td {
+  color: var(--text-secondary);
+}
+
+/* Скрываем колонки на мобильных */
+.desktop-only {
+  display: table-cell;
+}
+
+/* =ПЕРЕКЛЮЧАТЕЛЬ ВИДА
+-------------------------------------------------------------- */
+.view-toggle {
+  display: flex;
+  gap: 4px;
+  height: 40px;
+  align-items: center;
+}
+
+.view-toggle button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-pagination);
+  border: var(--border-width) var(--border-style) var(--border-light);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 18px;
+  color: var(--text-secondary);
+  transition: var(--transition);
+  padding: 0;
+  margin: 0;
+}
+
+.view-toggle button:hover {
+  background: var(--bg-pagination-hover);
+  color: var(--text-primary);
+}
+
+.view-toggle button.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* Тултипы */
+.view-toggle button::after {
+  content: attr(title);
+  position: absolute;
+  bottom: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.view-toggle button:hover::after {
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .view-toggle button::after {
+    display: none;
+  }
 }
 
 /* =АДАПТИВНОСТЬ
@@ -230,13 +361,39 @@ input.search {
     padding: var(--spacing-lg);
   }
   
-  .button-group {
-    flex-direction: column;
-    gap: var(--spacing-sm);
+  button:not(.pagination button):not(.view-toggle button) {
+    margin-bottom: var(--spacing-sm);
   }
   
-  button {
-    width: 100%;
-    margin-bottom: var(--spacing-sm);
+  .search-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  /* Переключатель на мобильных — КНОПКИ ОДНА ЗА ДРУГОЙ */
+  .view-toggle button {
+    height: 40px;
+    font-size: 16px;
+    flex-shrink: 0;
+  }
+  
+  /* Скрываем колонки телефон/email на мобильных */
+  .desktop-only {
+    display: none;
+  }
+  
+  /* Уменьшаем минимальную ширину таблицы для 2 колонок */
+  .companies-table {
+    min-width: 250px;
+  }
+  
+  /* Убираем индикатор скролла для 2 колонок (они помещаются) */
+  .table-container::after {
+    display: none;
+  }
+  
+  /* Добавляем отступ справа для кнопки скролла (если понадобится) */
+  .table-container {
+    padding-right: 10px;
   }
 }

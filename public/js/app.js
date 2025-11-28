@@ -12,6 +12,7 @@ createApp({
     const progressMessage = ref('');
     const searchQuery = ref('');
     const isFromCache = ref(false);
+	const viewMode = ref('cards'); // 'cards' или 'table'
 
     // Загружаем кэш после полной инициализации Vue
     onMounted(() => {
@@ -319,7 +320,8 @@ createApp({
       clearCache,
       fetchCompanies,
       formattedError,
-      validateWebhookUrl
+      validateWebhookUrl,
+	  viewMode
     };
   }
 }).mount('#app');

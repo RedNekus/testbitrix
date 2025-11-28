@@ -17,6 +17,7 @@
     <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
       <div style="flex: 1; min-width: 200px;">
         <input
+          class="input-url"
           :class="{'error-border': error && (error.includes('URL') || error.includes('домен'))}"
           v-model="webhookUrl"
           placeholder="Примеры:
@@ -30,31 +31,54 @@
       <button @click="fetchCompanies" :disabled="loading" style="width: auto; padding: 10px 15px; white-space: nowrap;">
         {{ loading ? 'Загрузка...' : 'Получить компании' }}
       </button>
-      <button @click="clearCache" v-if="companies.length > 0 || isFromCache" style="width: auto; padding: 10px 15px; background: #ffc107; color: #212529; white-space: nowrap;">
+      <button @click="clearCache" v-if="companies.length > 0 || isFromCache" style="width: auto; padding: 10px 15px; background: var(--warning); color: var(--warning-text); white-space: nowrap;">
         Очистить кэш
       </button>
     </div>
 
     <div v-if="error" class="error" v-html="formattedError"></div>
     <div v-if="loading" class="loading">{{ progressMessage || 'Начинаем загрузку...' }}</div>
-    <div v-if="isFromCache && !loading" class="loading" style="color: #17a2b8; background: #e3f2fd; border-left: 3px solid #17a2b8; padding: 8px 12px; margin: 10px 0; border-radius: 0 4px 4px 0;">
+    <div v-if="isFromCache && !loading" class="cache-indicator">
       ⏱️ Данные загружены из кэша (актуальны 10 минут)
     </div>
     
     <button 
       v-if="companies.length > 0 && !loading"
       @click="downloadExcel"
-      style="background: #28a745; margin-top: 6px; width: auto; padding: 8px 15px;"
+      style="background: var(--success); margin-top: 6px; width: auto; padding: 8px 15px; color: white;"
     >
       Скачать Excel ({{ companies.length }} компаний)
     </button>
 
-    <input
-      v-if="companies.length > 0 && !loading"
-      v-model="searchQuery"
-      placeholder="Поиск по названию компании..."
-      style="margin-top: 10px; background: #fff8e1;"
-    />
+    <!-- Единый контейнер для поиска и переключателя -->
+    <div v-if="companies.length > 0 && !loading" style="display: flex; gap: 10px; margin: 15px 0; align-items: center; flex-wrap: wrap;">
+      <!-- Поле поиска -->
+      <div style="flex: 1; min-width: 150px;">
+        <input
+          v-model="searchQuery"
+          placeholder="Поиск по названию..."
+          style="width: 100%; height: 40px; padding: 0 12px; background: var(--warning-bg); border: 1px solid var(--border-input); border-radius: 0; font-size: 14px; box-sizing: border-box;"
+        />
+      </div>
+      
+      <!-- Переключатель ВСЕГДА виден, даже на мобильных -->
+      <div class="view-toggle">
+        <button 
+          @click="viewMode = 'cards'"
+          :class="{ active: viewMode === 'cards' }"
+          title="Режим карточек"
+        >
+          📇
+        </button>
+        <button 
+          @click="viewMode = 'table'"
+          :class="{ active: viewMode === 'table' }"
+          title="Режим таблицы"
+        >
+          📋
+        </button>
+      </div>
+    </div>
 
     <div v-if="total > 0" class="summary">
       Всего компаний: {{ total }} 
@@ -63,14 +87,41 @@
       | Страница {{ currentPage }} из {{ totalPages }}
     </div>
 
+    <!-- Отображение в зависимости от режима -->
     <div v-if="pagedCompanies.length" style="margin-top: 15px;">
-      <div v-for="company in pagedCompanies" :key="company.ID" class="company">
-        <div class="title">{{ company.TITLE || 'Без названия' }}</div>
-        <div v-if="getFirstValue(company.PHONE)" class="detail">📞 {{ getFirstValue(company.PHONE) }}</div>
-        <div v-if="getFirstValue(company.EMAIL)" class="detail">✉️ {{ getFirstValue(company.EMAIL) }}</div>
+      <!-- Режим карточек -->
+      <div v-if="viewMode === 'cards'">
+        <div v-for="company in pagedCompanies" :key="company.ID" class="company">
+          <div class="title">{{ company.TITLE || 'Без названия' }}</div>
+          <div v-if="getFirstValue(company.PHONE)" class="detail">📞 {{ getFirstValue(company.PHONE) }}</div>
+          <div v-if="getFirstValue(company.EMAIL)" class="detail">✉️ {{ getFirstValue(company.EMAIL) }}</div>
+        </div>
+      </div>
+
+      <!-- Режим таблицы -->
+      <div v-else class="table-container">
+        <table class="companies-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Название компании</th>
+              <th class="desktop-only">Телефон</th>
+              <th class="desktop-only">Email</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="company in pagedCompanies" :key="company.ID">
+              <td>{{ company.ID }}</td>
+              <td>{{ company.TITLE || 'Без названия' }}</td>
+              <td class="desktop-only">{{ getFirstValue(company.PHONE) }}</td>
+              <td class="desktop-only">{{ getFirstValue(company.EMAIL) }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
+    <!-- Пагинация -->
     <div v-if="totalPages > 1" class="pagination">
       <button 
         @click="currentPage = Math.max(1, currentPage - 1)"
