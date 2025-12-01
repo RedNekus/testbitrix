@@ -1,121 +1,203 @@
 <?php
+// Включаем вывод ошибок для отладки
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+require_once __DIR__ . '/vendor/autoload.php';
+
+use Dotenv\Dotenv;
+
+// Загрузка .env
+$dotenv = Dotenv::createImmutable(__DIR__);
+$dotenv->load();
+
+// Настройки из .env
+$webhookUrl = $_ENV['BITRIX24_WEBHOOK_URL'] ?? '';
+$maxCompanies = (int) ($_ENV['MAX_COMPANIES'] ?? 10000);
+$requestTimeout = (int) ($_ENV['REQUEST_TIMEOUT'] ?? 45);
+$debugMode = filter_var($_ENV['DEBUG_MODE'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+// Rate limiting (1 запрос в 2 секунды)
+session_start();
+if (isset($_SESSION['last_request']) && time() - $_SESSION['last_request'] < 2) {
+    http_response_code(429);
+    echo json_encode(['error' => 'Слишком частые запросы. Попробуйте через 2 секунды.']);
+    exit;
+}
+$_SESSION['last_request'] = time();
+
+// CORS заголовки
 header('Content-Type: application/json');
-header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Methods: POST');
+header('Access-Control-Allow-Origin: ' . ($_SERVER['HTTP_ORIGIN'] ?? '*'));
+header('Access-Control-Allow-Methods: GET');
 header('Access-Control-Allow-Headers: Content-Type');
 
-$errorMap = [
-    'insufficient_scope' => 'У вебхука нет прав на просмотр компаний. Обновите права в Bitrix24: Настройки → REST API → ваш токен → права на CRM → Компании → Просмотр.',
-    'invalid_token' => 'Токен вебхука недействителен. Скопируйте актуальный URL из Bitrix24: Настройки → REST API.',
-    'no_permission' => 'Недостаточно прав для выполнения операции. Обратитесь к администратору портала.',
-    'not_found' => 'Метод crm.company.list не найден. Убедитесь, что URL заканчивается на `/crm.company.list.json`.',
-    'rate_limit' => 'Слишком много запросов. Bitrix24 ограничивает частоту вызовов. Попробуйте позже.',
-    'default' => 'Ошибка Bitrix24: [error]. Проверьте корректность вебхука и права доступа.'
-];
-
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+// Только GET-запросы
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
-    echo json_encode(['error' => 'Только POST-запросы разрешены']);
+    echo json_encode(['error' => 'Только GET-запросы разрешены']);
     exit;
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-$webhookUrl = trim($input['webhookUrl'] ?? '');
-$postData = $input['postData'] ?? [];
-
-if (!$webhookUrl || !filter_var($webhookUrl, FILTER_VALIDATE_URL)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Некорректный URL. Пример правильного: https://ваш.bitrix24.ru/rest/123/токен/crm.company.list.json']);
-    exit;
-}
-
-// Гибкая проверка: разрешаем любые домены, но требуем путь /rest/.../crm.company.list.json
-$parsedUrl = parse_url($webhookUrl);
-$path = $parsedUrl['path'] ?? '';
-
-if (strpos($path, '/rest/') === false || strpos($path, '/crm.company.list.json') === false) {
-    http_response_code(400);
-    echo json_encode(['error' => 'URL должен содержать путь `/rest/.../crm.company.list.json`. Пример: https://yoow.bitrix24.by/rest/123/токен/crm.company.list.json']);
-    exit;
-}
-
-// Дополнительная проверка: если домен НЕ содержит bitrix24 — предупреждаем (но не блокируем)
-$host = strtolower($parsedUrl['host'] ?? '');
-$isBitrixHost = preg_match('/bitrix24\.(ru|com|by|kz|ua|com\.tr|com\.br|de|fr|es|it|pl|cz|in|sg|jp|au|ca)/i', $host);
-
-if (!$isBitrixHost) {
-    // Логируем подозрительный запрос (в реальном проекте — в файл или мониторинг)
-    error_log('Подозрительный домен Bitrix24: ' . $host);
-    // Но НЕ прерываем выполнение — может быть корпоративный портал
-}
-
-$ch = curl_init($webhookUrl);
-curl_setopt($ch, CURLOPT_POST, true);
-curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($postData));
-curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
-curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-curl_setopt($ch, CURLOPT_TIMEOUT, 45);
-curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
-
-$response = curl_exec($ch);
-$curlError = curl_error($ch);
-$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
-
-if ($response === false) {
-    $errorMsg = 'Ошибка соединения с Bitrix24';
-    if (strpos($curlError, 'timeout') !== false) {
-        $errorMsg = 'Таймаут запроса. Bitrix24 не ответил за 45 секунд. Попробуйте позже или уменьшите объём данных.';
-    } elseif (strpos($curlError, 'SSL') !== false) {
-        $errorMsg = 'Ошибка SSL-соединения. Убедитесь, что URL начинается с https://';
-    } else {
-        $errorMsg .= ': ' . $curlError;
-    }
-    http_response_code(502);
+// Проверка конфигурации
+if (!$webhookUrl) {
+    $errorMsg = 'BITRIX24_WEBHOOK_URL не настроен в .env';
+    error_log("Конфигурационная ошибка: " . $errorMsg);
+    http_response_code(500);
     echo json_encode(['error' => $errorMsg]);
     exit;
 }
 
-if ($httpCode >= 500) {
-    http_response_code(502);
-    echo json_encode(['error' => 'Сервер Bitrix24 вернул ошибку ' . $httpCode . '. Сервис может быть временно недоступен. Проверьте статус: https://status.bitrix24.ru']);
+// Серверное кэширование (5 минут)
+$cacheDir = sys_get_temp_dir() . '/bitrix_cache';
+$cacheFile = $cacheDir . '/' . md5($webhookUrl) . '.json';
+
+// Создаём директорию для кэша
+if (!file_exists($cacheDir)) {
+    mkdir($cacheDir, 0755, true);
+}
+
+if (file_exists($cacheFile) && time() - filemtime($cacheFile) < 300) {
+    if ($debugMode) {
+        error_log("Кэш используется: " . $cacheFile);
+    }
+    echo file_get_contents($cacheFile);
     exit;
 }
 
-if ($httpCode >= 400) {
-    $data = json_decode($response, true);
-    if (isset($data['error'])) {
-        $bitrixError = $data['error'];
-        $errorMsg = $errorMap[$bitrixError] ?? str_replace('[error]', $bitrixError, $errorMap['default']);
-        if (isset($data['error_description'])) {
-            $errorMsg .= ' Детали: ' . $data['error_description'];
+// Загрузка данных из Bitrix24
+$result = [];
+$start = 0;
+$totalRequests = 0;
+$maxRequests = ceil($maxCompanies / 50);
+$errorOccurred = false;
+
+while (count($result) < $maxCompanies) {
+    // Защита от бесконечных циклов
+    if ($totalRequests >= $maxRequests) {
+        break;
+    }
+    $totalRequests++;
+
+    $postData = json_encode([
+        'start' => $start,
+        'select' => ['ID', 'TITLE', 'PHONE', 'EMAIL', 'ADDRESS', 'DATE_CREATE']
+    ]);
+
+    $ch = curl_init($webhookUrl);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, ['Content-Type: application/json']);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, $requestTimeout);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    // Обработка сетевых ошибок
+    if ($response === false) {
+        $errorMsg = 'Ошибка соединения с Bitrix24';
+        if (strpos($curlError, 'timeout') !== false) {
+            $errorMsg = 'Таймаут запроса к Bitrix24 (' . $requestTimeout . ' сек)';
+        } elseif (strpos($curlError, 'SSL') !== false) {
+            $errorMsg = 'Ошибка SSL-соединения с Bitrix24';
+        } else {
+            $errorMsg .= ': ' . $curlError;
         }
-        echo json_encode(['error' => $errorMsg], JSON_UNESCAPED_UNICODE);
-        exit;
-    } else {
-        http_response_code(400);
-        echo json_encode(['error' => 'Bitrix24 вернул ошибку ' . $httpCode . ': ' . substr($response, 0, 200) . '...']);
-        exit;
+        error_log("Bitrix24 API error: " . $errorMsg);
+        $errorOccurred = true;
+        break;
     }
-}
 
-$data = json_decode($response, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
-    http_response_code(502);
-    echo json_encode(['error' => 'Bitrix24 вернул некорректный JSON: ' . substr($response, 0, 200) . '...']);
-    exit;
-}
+    // Обработка HTTP ошибок
+    if ($httpCode >= 500) {
+        $errorMsg = 'Сервер Bitrix24 вернул ошибку ' . $httpCode . '. Сервис может быть временно недоступен.';
+        error_log("Bitrix24 HTTP error: " . $errorMsg);
+        $errorOccurred = true;
+        break;
+    }
 
-if (!isset($data['result']) || !is_array($data['result'])) {
+    $data = json_decode($response, true);
+    $jsonError = json_last_error();
+
+    // Обработка ошибок Bitrix24
     if (isset($data['error'])) {
         $bitrixError = $data['error'];
-        $errorMsg = $errorMap[$bitrixError] ?? str_replace('[error]', $bitrixError, $errorMap['default']);
-        echo json_encode(['error' => $errorMsg], JSON_UNESCAPED_UNICODE);
-        exit;
+        $errorMsg = $data['error_description'] ?? 'Неизвестная ошибка Bitrix24';
+        
+        // Локализация частых ошибок
+        $errorMap = [
+            'insufficient_scope' => 'У вебхука нет прав на просмотр компаний. Обновите права в Bitrix24: Настройки → REST API → ваш токен → права на CRM → Компании → Просмотр.',
+            'invalid_token' => 'Токен вебхука недействителен. Скопируйте актуальный URL из Bitrix24: Настройки → REST API.',
+        ];
+        
+        if (isset($errorMap[$bitrixError])) {
+            $errorMsg = $errorMap[$bitrixError];
+        }
+        
+        error_log("Bitrix24 API error [$bitrixError]: " . $errorMsg);
+        $errorOccurred = true;
+        break;
     }
+
+    // Обработка ошибок JSON
+    if ($jsonError !== JSON_ERROR_NONE) {
+        $errorMsg = 'Bitrix24 вернул некорректный JSON: ' . substr($response, 0, 200) . '...';
+        error_log("JSON error: " . $errorMsg);
+        $errorOccurred = true;
+        break;
+    }
+
+    // Обработка отсутствия данных
+    if (!isset($data['result']) || !is_array($data['result'])) {
+        $errorMsg = 'Bitrix24 вернул ответ без поля "result"';
+        if ($totalRequests === 1 && empty($data)) {
+            $errorMsg = 'Пустой ответ от Bitrix24. Проверьте корректность вебхука.';
+        }
+        error_log("Bitrix24 data error: " . $errorMsg);
+        $errorOccurred = true;
+        break;
+    }
+
+    $result = array_merge($result, $data['result']);
+    if (count($result) >= $maxCompanies) {
+        $result = array_slice($result, 0, $maxCompanies);
+        break;
+    }
+
+    $start = $data['next'] ?? null;
+    if ($start === null) break;
+}
+
+// Формирование ответа
+if ($errorOccurred) {
     http_response_code(502);
-    echo json_encode(['error' => 'Bitrix24 вернул ответ без поля "result". Возможно, проблема с правами или методом.']);
+    echo json_encode(['error' => $errorMsg ?? 'Неизвестная ошибка при работе с Bitrix24']);
     exit;
 }
 
-echo $response;
+$responseData = [
+    'companies' => $result,
+    'total' => count($result),
+    'cached' => false
+];
+
+// Сохранение в кэш
+if (!empty($result)) {
+    try {
+        file_put_contents($cacheFile, json_encode($responseData, JSON_UNESCAPED_UNICODE));
+        if ($debugMode) {
+            error_log("Кэш сохранён: " . $cacheFile);
+        }
+        $responseData['cached'] = true;
+    } catch (Exception $e) {
+        error_log("Ошибка кэширования: " . $e->getMessage());
+    }
+}
+
+// Отдача результата
+echo json_encode($responseData, JSON_UNESCAPED_UNICODE);

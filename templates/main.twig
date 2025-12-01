@@ -10,24 +10,17 @@
   <script src="/public/js/app.js" defer></script>
 </head>
 <body>
+  <!-- Эта переменная ВНЕ verbatim -->
+  <div id="app-data" style="display:none;" 
+       data-total="{{ 0 }}" 
+       data-companies="{{ '[]'|e('html_attr') }}">
+  </div>
   {% verbatim %}
   <div id="app">
     <h2>Загрузка компаний из Битрикс24</h2>
 
+    <!-- Кнопки управления -->
     <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-      <div style="flex: 1; min-width: 200px;">
-        <input
-          class="input-url"
-          :class="{'error-border': error && (error.includes('URL') || error.includes('домен'))}"
-          v-model="webhookUrl"
-          placeholder="Примеры:
-• https://ваш.bitrix24.ru/rest/123/токен/crm.company.list.json
-• https://yoow.bitrix24.by/rest/456/токен/crm.company.list.json
-• https://corporate.bitrix24.kz/rest/789/токен/crm.company.list.json"
-          style="font-family: monospace; font-size: 13px; line-height: 1.4;"
-          @input="error = ''"
-        />
-      </div>
       <button @click="fetchCompanies" :disabled="loading" style="width: auto; padding: 10px 15px; white-space: nowrap;">
         {{ loading ? 'Загрузка...' : 'Получить компании' }}
       </button>
@@ -36,12 +29,14 @@
       </button>
     </div>
 
-    <div v-if="error" class="error" v-html="formattedError"></div>
+    <!-- Статусные сообщения -->
+    <div v-if="error" class="error">{{ error }}</div>
     <div v-if="loading" class="loading">{{ progressMessage || 'Начинаем загрузку...' }}</div>
     <div v-if="isFromCache && !loading" class="cache-indicator">
       ⏱️ Данные загружены из кэша (актуальны 10 минут)
     </div>
     
+    <!-- Кнопка экспорта -->
     <button 
       v-if="companies.length > 0 && !loading"
       @click="downloadExcel"
@@ -50,18 +45,17 @@
       Скачать Excel ({{ companies.length }} компаний)
     </button>
 
-    <!-- Единый контейнер для поиска и переключателя -->
+    <!-- Поиск и переключатель режима -->
     <div v-if="companies.length > 0 && !loading" style="display: flex; gap: 10px; margin: 15px 0; align-items: center; flex-wrap: wrap;">
-      <!-- Поле поиска -->
       <div style="flex: 1; min-width: 150px;">
         <input
           v-model="searchQuery"
-          placeholder="Поиск по названию..."
+          placeholder="Поиск по названию компании..."
           style="width: 100%; height: 40px; padding: 0 12px; background: var(--warning-bg); border: 1px solid var(--border-input); border-radius: 0; font-size: 14px; box-sizing: border-box;"
         />
       </div>
       
-      <!-- Переключатель ВСЕГДА виден, даже на мобильных -->
+      <!-- Переключатель режимов -->
       <div class="view-toggle">
         <button 
           @click="viewMode = 'cards'"
@@ -80,6 +74,7 @@
       </div>
     </div>
 
+    <!-- Информация о данных -->
     <div v-if="total > 0" class="summary">
       Всего компаний: {{ total }} 
       <span v-if="searchQuery">| Найдено: {{ filteredCompanies.length }}</span>
@@ -87,7 +82,7 @@
       | Страница {{ currentPage }} из {{ totalPages }}
     </div>
 
-    <!-- Отображение в зависимости от режима -->
+    <!-- Отображение данных -->
     <div v-if="pagedCompanies.length" style="margin-top: 15px;">
       <!-- Режим карточек -->
       <div v-if="viewMode === 'cards'">
